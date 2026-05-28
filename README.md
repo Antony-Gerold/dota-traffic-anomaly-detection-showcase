@@ -44,8 +44,8 @@ Frame → YOLOv8m @1280 → ByteTrack → 53-d features
 
 ## Read more
 
-- 📄 **[Full report (PDF)](report/DoTA_Project4_FinalReport.pdf)**
-- 🔬 [Methodology](docs/methodology.md) · [Results](docs/results.md) · [References](docs/references.md)
+- **[Full report (PDF)](report/DoTA_Project4_FinalReport.pdf)**
+- [Methodology](docs/methodology.md) · [Results](docs/results.md) · [References](docs/references.md)
 
 ## A note on code
 
