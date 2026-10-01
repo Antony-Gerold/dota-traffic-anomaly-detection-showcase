@@ -57,7 +57,7 @@ The training and inference pipeline was developed on Kaggle and is kept private 
 
 ## Author
 
-**Antony Gerold Arockiasamy**, ENGG\*6100 Machine Vision, University of Guelph.
+**Antony Gerold Arockiasamy**, MEng Computer Engineering, University of Guelph. ENGG\*6100 Machine Vision.
 
 ## License
 
