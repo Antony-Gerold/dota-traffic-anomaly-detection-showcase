@@ -1,162 +1,77 @@
 # Methodology
 
-## 1. Problem framing
+Everything here follows the final report ([PDF](../report/DoTA_Project4_FinalReport.pdf)).
 
-**Input:** dashcam video. **Output:** per-frame anomaly score *and* the specific anomalous object's track ID.
+## 1. Problem and hypothesis
 
-The DoTA benchmark [Yao et al., 2023] evaluates this with two metrics:
-- **Frame AUC** — does the model fire at the right *time*?
-- **STAUC (Spatio-Temporal AUC)** — does the model fire at the right *object* at the right time?
+The DoTA dataset [1] contains 4,677 dashcam videos annotated with anomaly start and end times, bounding-box tracks of the anomalous object, and one of nine accident categories per video. The original DoTA method (FOL-Ensemble) is unsupervised and works at the frame level: it predicts when an anomaly happens but does not explicitly identify which object is anomalous. The paper's STAUC metric penalizes methods that get the timing right but fail to localize the anomalous object.
 
-The proposal hypothesis: object-level supervision should narrow the AUC–STAUC gap that frame-level baselines like FOL-Ensemble exhibit.
+The hypothesis was that a detection-first, object-level pipeline with supervision targeting STAUC would localize better than the frame-level baseline.
 
-## 2. Datasets
+## 2. Training and evaluation protocol
 
-| Dataset | Role | Size |
+- 5-fold GroupKFold over all 4,677 videos, grouped by video id, so frames from one video never appear in both training and test folds. All in-distribution per-detection AUC, frame AUC, and STAUC numbers are pooled out-of-fold predictions.
+- The same split is reused at every stage. Classifier A trains five LightGBM models (one per fold, each on about 3,742 videos, scoring the held-out 935). Stage-2 trains on Classifier A's out-of-fold scores. Classifier B uses per-track features from training-fold anomaly windows and is evaluated on held-out folds.
+- For CCD and Nexar, a single Classifier A was trained on all 4,677 DoTA videos and applied without retraining or fine-tuning.
+- Yao et al. report on DoTA's official 1,402-video validation split. Both protocols evaluate on unseen videos; the 5-fold approach evaluates on more videos with proportionally less training data per fold.
+
+## 3. Detection and tracking
+
+**YOLOv8m at 1280×720** [2]. Six COCO classes: person, bicycle, car, motorcycle, bus, truck. Confidence threshold 0.25, IoU threshold for tracking 0.45. YOLOv8n misses too many small objects (a vehicle 30 m ahead can be under 50 pixels); YOLOv8l and YOLOv8x give marginal gains at three to six times the inference cost. Single-frame inference is roughly 50 ms on a Tesla T4.
+
+**ByteTrack** [3] with default Ultralytics settings. Its second association stage matches low-confidence detections that most trackers discard, which matters because occlusion, motion blur, and unusual lighting near a collision are exactly when confidence drops. SORT [11] or DeepSORT would lose these tracks.
+
+## 4. Features
+
+A 57-dimensional feature vector was designed per detection, in five groups:
+
+| Group | Features | Content |
 |---|---|---|
-| **DoTA** [Yao et al., 2023] | Train + test | 4,677 videos, 9 anomaly categories |
-| **Nexar Dashcam Collision Prediction** | Zero-shot generalization | Kaggle test set |
-| **CCD** [Bao et al., 2020] | Zero-shot, plus the anticipation finding | Public release |
+| Trajectory | 18 | Normalized centre and bottom position, box area and aspect ratio, velocity, speed, direction, acceleration, jerk, track age, track stability, YOLO class |
+| Interaction | 9 | Min and mean nearest-neighbour distance, max and mean closing rate, max IoU with another object, max relative speed, count of others in frame, TTC-derived features |
+| Time-to-collision | 2 | Inverse TTC from the rate of bounding-box growth (looming model) |
+| Temporal rolling | 24 | Rolling max (5 and 10 frames), mean (10), and std (10) of six base features, plus cumulative direction change and 5-frame speed delta |
+| Residual | 4 | Actual minus predicted next-frame cx, cy, vx, vy |
 
-Neither Nexar nor CCD was seen during training.
+Four optical-flow-decoupled features were left at zero for compute reasons, so the final vector is **53 numbers per detection**. With 2,744,200 detections this gives a 2.74M × 53 training matrix.
 
-## 3. Pipeline architecture
+## 5. Classifier A: per-detection anomaly scoring
 
-### 3.1 Object detection — YOLOv8m at imgsz 1280
+LightGBM [4], chosen because the features are tabular, the training set is 2.74 million samples, and scoring all detections takes about 30 seconds on CPU. Configuration: 300 boosting rounds, learning rate 0.05, max depth 6, 31 leaves, min child samples 50, scale_pos_weight set to the negative-to-positive ratio.
 
-The DoTA proposal benchmark uses YOLOv8 at default `imgsz=640`. I switched to **1280**.
+**Label noise.** The first labelling rule marked every detection in an anomaly window as positive and gave AUC 0.88. A typical anomaly frame has five to fifteen detected objects but only one ground-truth anomalous object, so most "positives" were bystanders. For each detection in the anomaly window, IoU with the ground-truth anomalous box was computed and detections below 0.3 were relabelled negative. This relabelled **692,412 detections** and raised AUC from **0.88 to 0.9151**. The 0.3 threshold was chosen empirically: 0.5 was too strict under heavy occlusion, 0.1 admitted nearby bystanders.
 
-| imgsz | Miss rate on small objects (< 32² px) |
-|---|---|
-| 640 | 71 % |
-| **1280** | **35 %** |
+## 6. Stage-2 frame aggregation
 
-Distant oncoming vehicles — exactly the agents involved in head-on and oncoming anomalies — sit at ~30 m and occupy 30–50 px at 1280p resolution. At 640 they're sub-25 px and fall below YOLO's effective minimum. Doubling input resolution doubles small-object recall and costs ~3× inference time — an acceptable tradeoff because detection is the upstream bottleneck. (See `report/figures/fig5_yolo_miss_rate.png`.)
+Taking the max per-detection score per frame gave frame AUC 0.65. With a per-detection false-positive rate of about 5% at threshold 0.5, a 10-detection normal frame has roughly a 40% chance that at least one detection exceeds 0.5, which inflates the noise floor.
 
-Detection is restricted to 6 COCO classes relevant to traffic: `person`, `bicycle`, `car`, `motorcycle`, `bus`, `truck`.
+Stage-2 is a second classifier on a 22-dimensional per-frame vector: max, mean, 90th and 75th percentile of detection scores; counts above 0.3, 0.5, and 0.7; the same statistics over 5-frame and 10-frame trailing windows; and an exponential moving average of the per-frame max (smoothing factor 0.3). A real anomaly produces a sustained multi-detection pattern; a false positive is a single-frame spike. Stage-2 raised frame AUC from 0.65 to **0.7272**.
 
-### 3.2 Tracking — ByteTrack
+## 7. Classifier B: anomaly category
 
-ByteTrack [Zhang et al., 2022] uses two-stage association: high-confidence detections match first, then *low-confidence* detections are re-matched to existing tracks. This is essential for anomaly detection — anomalous objects (occluded, partially out-of-frame, motion-blurred) are exactly the ones YOLO assigns low confidence to. SORT and DeepSORT would drop them.
+Eight reliably labelled categories: turning, lateral, oncoming, moving-ahead-or-waiting, pedestrian, leave-to-right, leave-to-left, start-stop-or-stationary. Unknown and obstacle were excluded because those labels are heterogeneous.
 
-### 3.3 Feature extraction — 53-dimensional per-detection vector
-
-Six families:
-
-| Family | Dims | Examples |
-|---|---|---|
-| Trajectory | 18 | velocity, acceleration, curvature, displacement over windows |
-| Interaction | 8 | nearest-neighbour distance, density in 50 px radius, relative motion |
-| Time-to-collision | 6 | TTC to ego, TTC to closest other agent, log-TTC bands |
-| Temporal rolling | 12 | rolling mean / std / max of trajectory features over 5, 15, 30 frames |
-| Residual | 6 | observed motion minus predicted-constant-velocity baseline |
-| Identity | 3 | class one-hot, age (frames since first detection), confidence |
-
-Features are computed *per detection per frame*. A single frame with 8 detections produces 8 × 53 = 424 features that get scored independently by Classifier A.
-
-## 4. Classifier A — per-detection anomaly score
-
-### 4.1 Choice: LightGBM, not deep model
-
-- 2.74 M training samples × 53 tabular features
-- Interpretable feature importance directly maps to ablation analysis
-- 30-second training time enables rapid iteration
-- LightGBM beat XGBoost by 0.3 AUC and a 3-layer MLP by 1.1 AUC on this feature set
-
-### 4.2 The label-noise discovery
-
-DoTA annotations are *frame-level*: each frame has a flag indicating "anomaly happening." The naive labelling rule was: in any anomaly frame, mark *every* detection as positive.
-
-This is wrong. In a single anomaly frame, only one or two tracked objects are actually anomalous. The 6 other vehicles also visible in the frame are behaving normally and should be negatives. With naive labelling, the *same trajectory* of a normal car appears as positive in some frames and negative in others, depending purely on whether an anomaly happens elsewhere in the same frame.
-
-**The fix:** GT-IoU ≥ 0.3 filtering. For each "anomaly frame," only detections whose bounding box overlaps the GT-anomaly box by IoU ≥ 0.3 are positives. The other detections in the same frame are demoted to negatives.
-
-**Result:** per-detection AUC jumped **0.88 → 0.9151** with no model change. **692,412 detections were relabeled.** Figure: `report/figures/label_noise_before_after.png`.
-
-This is the most consequential finding in the project — supervision cleanup outperformed every model architecture change.
-
-## 5. The aggregation gap and Stage-2 frame classifier
-
-### 5.1 The gap
-
-| Level | AUC |
-|---|---|
-| Per-detection (Classifier A) | **0.9151** |
-| Frame, naive max pool | 0.65 |
-| Frame, Stage-2 distributional | **0.7272** |
-
-Classifier A scores detections at 0.9151 — but if you simply take max(per-detection score) per frame as the frame score, you collapse to 0.65. The aggregation step is destroying signal.
-
-### 5.2 Why naive max-pooling fails
-
-In a normal frame with 10 detections, even if the *per-detection* false-positive rate is 4 %, the probability that *at least one* of the 10 detections has a score > 0.5 is ~34 %. This inflates the per-frame noise floor in proportion to scene density. Normal urban scenes (more vehicles) systematically score higher than normal highway scenes, washing out the anomaly signal.
-
-### 5.3 Stage-2 design — distributional aggregation
-
-Instead of `max`, extract a distributional summary per frame: top-1, top-3 mean, top-5 mean, number-of-detections-above-threshold, standard deviation, skewness, kurtosis. Train a second LightGBM on these to produce the frame score. This explicitly normalises for scene density.
-
-**Result:** frame AUC **0.7272** (vs 0.65 naive max), **STAUC 0.4966**. The latter is the headline win — STAUC is the metric the proposal targeted, and the system beats the FOL-Ensemble baseline (0.4850).
-
-## 6. Comparison with Yao et al. FOL-Ensemble
-
-| Metric | FOL-Ensemble | This work | Δ |
-|---|---|---|---|
-| Frame AUC | 0.7300 | 0.7272 | −0.003 |
-| **STAUC** | **0.4850** | **0.4966** | **+0.012** |
-| AUC − STAUC gap | 0.245 | **0.231** | **−0.014** |
-
-Frame AUC is tied; STAUC is materially better. The narrower gap confirms the proposal hypothesis: object-level supervision localises *which* object is anomalous more accurately, even when frame-level *timing* is unchanged.
-
-## 7. Classifier B — anomaly category
-
-Classifier A says "is anomalous"; Classifier B says "what *kind* of anomaly" — turning, lane change, leave-to-side, oncoming, ego-pedestrian, etc.
-
-### 7.1 The journey
-
-Initial attempt: trajectory features only. Top-1 = **0.46** across 8 categories. Investigation showed that categories share trajectory signatures — "turning" and "lane change" look nearly identical on (x, y, ẋ, ẏ) over a 30-frame window.
-
-### 7.2 DINOv2 visual fusion
-
-To break the trajectory ambiguity, add a visual feature axis. For each anomalous track:
-- Extract the bounding-box crop at the peak-anomaly frame
-- Pass it through a frozen DINOv2 backbone
-- Reduce to a 128-d visual embedding
-
-The 64-d motion signature (from Classifier A features) is concatenated with the 128-d DINOv2 vector → **192-d fused feature**. A two-stage LightGBM (A3 architecture) classifies into 8 categories.
-
-**Result:** top-1 **0.505**, top-3 **0.802** across 8 DoTA anomaly categories.
+- Trajectory features alone on a 200-video pilot: top-1 0.27, top-3 0.71.
+- Hierarchical ego vs non-ego split: failed, since the ego decision itself reached only AUC 0.63. Balanced undersampling and one-vs-rest classifiers did not help enough.
+- **Motion signature** per track over the whole anomaly window: Fourier descriptors (4 complex coefficients), an 8-bin direction histogram, speed-profile statistics, and the per-track Classifier A score curve resampled to 10 positions plus argmax position and peak score. With a two-stage A3 classifier (turning vs rest, then fine-grained), top-1 reached 0.46 on full DoTA.
+- **DINOv2 fusion** [7]. For each anomalous track, 5 frames sampled across the window, two crops per frame (tight object crop and a 1.5× context crop, resized to 518×518). DINOv2-small gives 384-d per crop, mean-pooled over the 10 crops and PCA-reduced to 128-d (84.2% variance retained). Motion (64-d) and DINOv2 (128-d) are concatenated to 192-d and fed to the same A3 classifier: **top-1 0.505, top-3 0.802**.
 
 ## 8. Cross-dataset evaluation
 
-### 8.1 Nexar — clean generalisation
+Same DoTA-trained Classifier A and Stage-2, no retraining.
 
-Zero-shot on Nexar Dashcam Collision Prediction: **frame AUC 0.6048**. Notable because (a) no fine-tuning, (b) Nexar has different camera angles and weather conditions, (c) the score is competitive with several published Nexar-trained baselines.
+- **Nexar** [6]: 1,500 dashcam videos with a video-level collision label and time of event. Frames sampled at stride 6; frames within ±2 s of the event are positive in collision videos.
+- **CCD** [5]: 1,500 crash videos, each 50 frames at 10 fps, with per-frame binary crash labels.
 
-### 8.2 CCD — the anticipation finding
+## 9. Visual-only and VLM methods tried before the pivot
 
-Zero-shot on CCD gave **frame AUC 0.4483** — below chance, a confusing result.
+On a 200-video DoTA subset:
 
-Investigation: the model peaks **2–4 frames before** CCD's labelled crash-onset frame. CCD labels the moment of physical impact as the start; the model fires on pre-collision precursors (brake lights, swerving, last-second deceleration) that CCD labels as normal.
+- CLIP text-anchor matching (ViT-B/32): frame AUC 0.557.
+- DINOv2 perceptual-curvature scoring: frame AUC 0.637.
+- Four-method unsupervised fusion: fAUC 0.657, STAUC 0.414, AUC-STAUC gap 0.243.
+- Qwen2-VL-2B zero-shot: 0.520 single-frame, 0.513 three-frame, 0.510 per-object crop (6.9% parse failures).
 
-**Precursor-window evaluation:** treat frames within ±k of the labelled crash as positives. AUC rises *monotonically* with window size:
+Frame-level methods broadcast one score across all objects instead of localizing the anomalous one, which is what STAUC penalizes. Switching to the object-level pipeline closed the gap to 0.231 and lifted STAUC from 0.414 to 0.4966.
 
-| Window | AUC |
-|---|---|
-| 3 frames | 0.497 |
-| 5 frames | 0.512 |
-| 10 frames | 0.541 |
-| 15 frames | 0.554 |
-
-This is anticipation, not failure. The model isn't generalising poorly — it's generalising in a way the benchmark labels punish. (See `report/figures/fig6_ccd_temporal_diagnosis.png`.)
-
-## 9. Why this earned 27/30
-
-ENGG\*6100 Project 4 (Prof. Moussa) marking rewards:
-
-- **Concrete numbers at every step.** Per-detection 0.9151, frame 0.7272, STAUC 0.4966, Nexar 0.6048, CCD precursor 0.554, label noise fix 0.88 → 0.9151, 692,412 relabeled detections.
-- **Tried → failed → diagnosed → fixed narrative.** Naive max → noise floor analysis → Stage-2 design. Classifier B trajectory-only → category overlap analysis → DINOv2 fusion. CCD AUC 0.45 → temporal diagnostic → anticipation finding.
-- **Comparison tables.** vs Yao et al. FOL-Ensemble baseline, vs YOLO 640 baseline, ablation.
-- **Physical reasoning.** Image resolution → small-object pixel count → YOLO miss rate. Naive max pooling → false-positive inflation as a function of detection density.
-- **External literature.** Yao et al., Zhang et al. (ByteTrack), Bao et al. (CCD), Oquab et al. (DINOv2).
-
-Lost 3 marks (vs the 30 ceiling) on discussion depth — alternative architectures considered but not exhaustively documented, and the label-noise discovery deserved a deeper ablation showing per-category contribution.
+Bracketed numbers refer to [references.md](references.md).
