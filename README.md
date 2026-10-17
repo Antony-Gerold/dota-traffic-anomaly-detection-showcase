@@ -67,4 +67,4 @@ The result files store unrounded values. Notebook 1 reads YOLOv8m + ByteTrack tr
 
 ## License
 
-Documentation and figures: MIT, see [LICENSE](LICENSE). DoTA dataset © Yao et al.
+Code, documentation and figures: MIT, see [LICENSE](LICENSE). DoTA dataset © Yao et al.
