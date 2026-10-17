@@ -51,9 +51,15 @@ Frame -> YOLOv8m @1280 -> ByteTrack -> 53-d per-detection features
 - **[Full report (PDF)](report/DoTA_Project4_FinalReport.pdf)**
 - [Methodology](docs/methodology.md), [Results](docs/results.md), [References](docs/references.md)
 
-## A note on code
+## How to run
 
-The training and inference pipeline was developed on Kaggle and is kept private in line with course academic-integrity policy. Happy to walk through the implementation with anyone interested.
+The three notebooks ran on Kaggle in this order, reading DoTA, CCD and Nexar from Kaggle inputs. The `/kaggle/...` paths are kept as they ran. Install with `pip install -r requirements.txt`.
+
+1. `code/01_features_classifier_a_stage2.ipynb`: features, GT-IoU label cleaning, Classifier A, Stage-2 and STAUC on full DoTA (report Sections 4 to 7). Writes `code/results/session2_final_results.json`, which holds Classifier A AUC 0.9151, frame AUC 0.7272, STAUC 0.4966 and the 692,412 relabelled detections.
+2. `code/02_classifier_b_dinov2.ipynb`: Classifier B on motion signature and DINOv2 features (Section 9). Writes `code/results/classifier_b_dino_results.json`, which holds top-1 0.505 and top-3 0.802.
+3. `code/03_cross_dataset_ccd_nexar_per_class.ipynb`: zero-shot CCD and Nexar evaluation and the per-class breakdown (Sections 10 and 11). Writes `ccd_summary_v2.json` (CCD frame AUC 0.4483), `nexar_summary.json` (Nexar frame AUC 0.6048) and `per_class_breakdown.json`.
+
+The result files store unrounded values. Notebook 1 reads YOLOv8m + ByteTrack tracks from a separate Kaggle dataset; the DoTA detection and tracking run is not included here.
 
 ## Author
 
