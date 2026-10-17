@@ -1,0 +1,11 @@
+{
+  "full_dota_n_videos": 4677,
+  "classifier_a_cv_auc": 0.9150677142817708,
+  "stage2_cv_auc": 0.806677474716299,
+  "final_frame_auc": 0.7272210026431724,
+  "final_stauc": 0.4965549529246108,
+  "case2_fixes": 0,
+  "case3_fixes": 692412,
+  "n_anomalous_frame_samples": 145456,
+  "total_frame_samples": 2744200
+}

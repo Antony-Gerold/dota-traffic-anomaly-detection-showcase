@@ -1,0 +1,8 @@
+{
+  "n_videos": 1489,
+  "capped": false,
+  "video_auc": 0.5908652978746437,
+  "frame_auc": 0.6048356598266406,
+  "n_frames": 89340,
+  "n_pos_frames": 1157
+}

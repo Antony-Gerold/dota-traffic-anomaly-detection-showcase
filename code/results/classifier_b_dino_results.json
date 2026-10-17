@@ -1,0 +1,63 @@
+{
+  "n_tracks": 21868,
+  "motion": {
+    "top1": 0.4569101011984415,
+    "top3": 0.7707291957292934
+  },
+  "dino": {
+    "top1": 0.492207182785231,
+    "top3": 0.78399258582147
+  },
+  "fused": {
+    "top1": 0.504748383825921,
+    "top3": 0.802350499736367
+  },
+  "ensemble": {
+    "top1": 0.502698006219133,
+    "top3": 0.8012621181635267
+  },
+  "best": "fused",
+  "best_per_class": {
+    "lateral": {
+      "support": 3876,
+      "correct": 1010,
+      "accuracy": 0.26057791537667696
+    },
+    "leave_to_left": {
+      "support": 957,
+      "correct": 96,
+      "accuracy": 0.10031347962382445
+    },
+    "leave_to_right": {
+      "support": 974,
+      "correct": 179,
+      "accuracy": 0.1837782340862423
+    },
+    "moving_ahead_or_waiting": {
+      "support": 3598,
+      "correct": 1046,
+      "accuracy": 0.2907170650361312
+    },
+    "oncoming": {
+      "support": 1724,
+      "correct": 503,
+      "accuracy": 0.2917633410672854
+    },
+    "pedestrian": {
+      "support": 663,
+      "correct": 14,
+      "accuracy": 0.021116138763197588
+    },
+    "start_stop_or_stationary": {
+      "support": 515,
+      "correct": 1,
+      "accuracy": 0.001941747572815534
+    },
+    "turning": {
+      "support": 9561,
+      "correct": 8191,
+      "accuracy": 0.8567095492103336
+    }
+  },
+  "pca_variance": 0.8423429727554321
+}

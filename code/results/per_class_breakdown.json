@@ -1,0 +1,74 @@
+{
+  "per_class": {
+    "pedestrian": {
+      "n_videos": 100,
+      "frame_auc": 0.7853291713961408,
+      "peak_in_window_rate": 0.74,
+      "n_frames_total": 9797,
+      "n_frames_pos": 2749
+    },
+    "oncoming": {
+      "n_videos": 478,
+      "frame_auc": 0.7777056840540038,
+      "peak_in_window_rate": 0.7887029288702929,
+      "n_frames_total": 40155,
+      "n_frames_pos": 11632
+    },
+    "moving_ahead_or_waiting": {
+      "n_videos": 663,
+      "frame_auc": 0.7741747231450333,
+      "peak_in_window_rate": 0.7767722473604827,
+      "n_frames_total": 65160,
+      "n_frames_pos": 21190
+    },
+    "turning": {
+      "n_videos": 1696,
+      "frame_auc": 0.7660908904412851,
+      "peak_in_window_rate": 0.7700471698113207,
+      "n_frames_total": 153943,
+      "n_frames_pos": 46122
+    },
+    "lateral": {
+      "n_videos": 726,
+      "frame_auc": 0.7642992257811669,
+      "peak_in_window_rate": 0.803030303030303,
+      "n_frames_total": 71724,
+      "n_frames_pos": 25328
+    },
+    "start_stop_or_stationary": {
+      "n_videos": 95,
+      "frame_auc": 0.7593355029812652,
+      "peak_in_window_rate": 0.6105263157894737,
+      "n_frames_total": 9648,
+      "n_frames_pos": 2591
+    },
+    "obstacle": {
+      "n_videos": 95,
+      "frame_auc": 0.7321012346879302,
+      "peak_in_window_rate": 0.5894736842105263,
+      "n_frames_total": 7381,
+      "n_frames_pos": 2407
+    },
+    "leave_to_left": {
+      "n_videos": 370,
+      "frame_auc": 0.714900420710231,
+      "peak_in_window_rate": 0.7166212534059946,
+      "n_frames_total": 32306,
+      "n_frames_pos": 12719
+    },
+    "leave_to_right": {
+      "n_videos": 362,
+      "frame_auc": 0.7011126665004482,
+      "peak_in_window_rate": 0.6897506925207756,
+      "n_frames_total": 31779,
+      "n_frames_pos": 12974
+    },
+    "unknown": {
+      "n_videos": 92,
+      "frame_auc": 0.6411819323435249,
+      "peak_in_window_rate": 0.6413043478260869,
+      "n_frames_total": 9088,
+      "n_frames_pos": 3301
+    }
+  }
+}
