@@ -1,0 +1,9 @@
+lightgbm
+matplotlib
+numpy
+opencv-python
+pandas
+scikit-learn
+timm
+torch
+ultralytics
